@@ -65,7 +65,10 @@ if (radialDivisions <= 2) {
     octaveShift = 0; // No shift for radial divisions 6,7,8
 }
 
-// Function to draw the grid
+// Function to store the flashing sectors
+let flashingSectors = [];
+
+// Function to draw the grid, modified to handle flashing sectors
 function drawGrid() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     const centerX = canvas.width / 2;
@@ -87,7 +90,8 @@ function drawGrid() {
         ctx.fill();
     }
 
-    if (showColors) {
+    // Determine whether to show colors or flashing sectors
+    if (showColors || flashingSectors.length > 0) {
         for (let i = skipRadialLevels; i < radialDivisions; i++) {
             let innerRadius = divisionRadius * i;
             let outerRadius = divisionRadius * (i + 1);
@@ -112,8 +116,19 @@ function drawGrid() {
                 // Calculate hue for circumferential divisions
                 let hue = (j / circumferentialDivisions) * 360;
 
+                // Check if this sector should be colored (flashing)
+                let isFlashing = flashingSectors.some(
+                    (sector) =>
+                        sector.radialIndex === i &&
+                        sector.circumferentialIndex === j
+                );
+
                 // Set fill style
-                ctx.fillStyle = `hsl(${hue}, 100%, ${lightness}%)`;
+                if (showColors || isFlashing) {
+                    ctx.fillStyle = `hsl(${hue}, 100%, ${lightness}%)`;
+                } else {
+                    ctx.fillStyle = '#FFFFFF'; // Default background color
+                }
 
                 // Draw sector
                 ctx.beginPath();
@@ -143,6 +158,7 @@ function drawGrid() {
             }
         }
     } else {
+        // If not showing colors and no flashing sectors, draw the grid lines
         // Draw concentric circles (radial divisions)
         for (let i = skipRadialLevels + 1; i <= radialDivisions; i++) {
             ctx.beginPath();
@@ -290,4 +306,31 @@ canvas.addEventListener('click', function (event) {
         `Clicked on sector: radialIndex=${radialIndex}, circumferentialIndex=${circumferentialIndex}`
     );
     console.log(`Playing frequency: ${frequency.toFixed(2)} Hz`);
+
+    // Handle flashing of the sector when colors are hidden
+    if (!showColors) {
+        // Add the sector to the flashing sectors list
+        flashingSectors.push({
+            radialIndex: skipRadialLevels + radialIndex,
+            circumferentialIndex: circumferentialIndex,
+        });
+
+        // Redraw the grid to show the flashing sector
+        drawGrid();
+
+        // Remove the sector from the flashing list after 1 second
+        setTimeout(() => {
+            // Remove the sector from flashingSectors
+            flashingSectors = flashingSectors.filter(
+                (sector) =>
+                    !(
+                        sector.radialIndex ===
+                            skipRadialLevels + radialIndex &&
+                        sector.circumferentialIndex === circumferentialIndex
+                    )
+            );
+            // Redraw the grid to remove the flashing sector
+            drawGrid();
+        }, 1000);
+    }
 });
