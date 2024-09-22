@@ -2,19 +2,20 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Circular Grid Game</title>
+    <title>Grid Sound Game</title>
     <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-    <div id="grid-container">
-        <canvas id="grid-canvas" width="800" height="800"></canvas>
+    <canvas id="grid-canvas" width="800" height="800"></canvas>
+    <div id="controls">
+        <button id="settings-button">Settings</button>
+        <button id="show-colors-button">Show Colors</button>
+        <button id="passive-mode-button">Passive Mode</button>
     </div>
-
-    <button id="settings-button">Settings</button>
-    <button id="show-colors-button">Show Colors</button>
-
-    <!-- Added a display area for note information -->
     <div id="note-display"></div>
+
+    <!-- Include Tone.js library -->
+    <script src="https://cdn.jsdelivr.net/npm/tone@14.7.77/build/Tone.js"></script>
 
     <script src="script.js"></script>
 </body>
