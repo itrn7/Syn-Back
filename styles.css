@@ -38,3 +38,41 @@ input {
     font-size: 16px;
     width: 50px;
 }
+
+/* Add these styles to your styles.css file */
+
+#learning-mode-container {
+    margin-top: 20px;
+}
+
+#learning-settings {
+    margin-bottom: 20px;
+}
+
+#learning-settings h3, #learning-settings h4 {
+    margin: 10px 0 5px 0;
+}
+
+#learning-settings label {
+    display: block;
+    margin-bottom: 5px;
+}
+
+#options-container {
+    position: absolute;
+    top: 50px;
+    width: 200px;
+}
+
+#feedback-popup {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    padding: 20px;
+    font-size: 24px;
+    font-weight: bold;
+    text-align: center;
+    border-radius: 10px;
+    color: #fff;
+}

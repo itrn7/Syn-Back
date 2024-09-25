@@ -64,9 +64,34 @@ if (radialDivisions <= 2) {
 // Function to store the flashing sectors
 let flashingSectors = [];
 
+// Function to store the highlighted sectors
+let highlightedSectors = [];
+
 // Initialize the piano instrument using Tone.js
 let piano;
 let pianoLoaded = false;
+
+// Variable to store active notes
+let activeNotes = [];
+
+// Variables for learning mode
+let learningMode = false;
+
+// Add references to new HTML elements
+const learningModeButton = document.getElementById('learning-mode-button');
+const learningModeContainer = document.getElementById('learning-mode-container');
+const startLearningButton = document.getElementById('start-learning-button');
+const optionsContainer = document.getElementById('options-container');
+const feedbackPopup = document.getElementById('feedback-popup');
+
+// Variables for learning mode settings
+let cueModalities = ['piano', 'color', 'spatial', 'coordinate'];
+let recallModalities = ['color', 'spatial', 'coordinate'];
+let cueInterval = 5; // default to 5 seconds
+
+let learningTimeout = null;
+let awaitingResponse = false;
+let currentCue = null;
 
 // Function to initialize the piano instrument
 async function initializePiano() {
@@ -125,7 +150,29 @@ async function startAudio() {
     await initializePiano();
 }
 
-// Function to draw the grid, modified to handle flashing sectors
+// Function to get the center coordinates of a grid space
+function getGridSpaceCenterCoordinates(radialIndex, circumferentialIndex) {
+    const divisionRadius = maxRadius / radialDivisions;
+
+    const innerRadius = divisionRadius * (skipRadialLevels + radialIndex);
+    const outerRadius = divisionRadius * (skipRadialLevels + radialIndex + 1);
+    const centerRadius = (innerRadius + outerRadius) / 2;
+
+    const angleStep = 2 * Math.PI / circumferentialDivisions;
+    const startAngle = angleStep * circumferentialIndex;
+    const endAngle = angleStep * (circumferentialIndex + 1);
+    let centerAngle = (startAngle + endAngle) / 2;
+
+    // Adjust centerAngle to be between 0 and 2π
+    if (centerAngle < 0) {
+        centerAngle += 2 * Math.PI;
+    }
+
+    return { r: centerRadius, theta: centerAngle };
+}
+
+// Function to draw the grid, modified to handle flashing and highlighted sectors
+// Function to draw the grid, modified to handle flashing and highlighted sectors
 function drawGrid() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     const centerX = canvas.width / 2;
@@ -133,99 +180,72 @@ function drawGrid() {
 
     const divisionRadius = maxRadius / radialDivisions;
 
-    // Determine whether to show colors or flashing sectors
-    if (showColors || flashingSectors.length > 0) {
-        for (let i = 0; i < radialDivisions; i++) {
-            let innerRadius = divisionRadius * i;
-            let outerRadius = divisionRadius * (i + 1);
+    // Draw sectors
+    for (let i = 0; i < adjustedRadialDivisions; i++) {
+        let innerRadius = divisionRadius * (skipRadialLevels + i);
+        let outerRadius = divisionRadius * (skipRadialLevels + i + 1);
 
-            // Calculate lightness for radial divisions
-            let adjustedIndex = i - skipRadialLevels;
-            let adjustedTotal = adjustedRadialDivisions - 1;
-            let lightness;
-            if (adjustedTotal <= 0) {
-                lightness = 50;
-            } else {
-                lightness =
-                    20 + (adjustedIndex / adjustedTotal) * 60; // From 20% to 80%
-            }
-
-            for (let j = 0; j < circumferentialDivisions; j++) {
-                let startAngle =
-                    (2 * Math.PI / circumferentialDivisions) * j;
-                let endAngle =
-                    (2 * Math.PI / circumferentialDivisions) * (j + 1);
-
-                // Calculate hue for circumferential divisions
-                let hue = (j / circumferentialDivisions) * 360;
-
-                // Check if this sector should be colored (flashing)
-                let isFlashing = flashingSectors.some(
-                    (sector) =>
-                        sector.radialIndex === i &&
-                        sector.circumferentialIndex === j
-                );
-
-                // Determine if this radial level corresponds to a valid octave
-                let isValidRadialLevel = i >= skipRadialLevels;
-
-                // Set fill style
-                if ((showColors && isValidRadialLevel) || isFlashing) {
-                    ctx.fillStyle = `hsl(${hue}, 100%, ${lightness}%)`;
-                } else {
-                    ctx.fillStyle = '#FFFFFF'; // Default background color
-                }
-
-                // Draw sector
-                ctx.beginPath();
-                ctx.moveTo(centerX, centerY);
-                ctx.arc(
-                    centerX,
-                    centerY,
-                    outerRadius,
-                    startAngle,
-                    endAngle
-                );
-                ctx.lineTo(centerX, centerY);
-                ctx.arc(
-                    centerX,
-                    centerY,
-                    innerRadius,
-                    endAngle,
-                    startAngle,
-                    true
-                );
-                ctx.closePath();
-                ctx.fill();
-
-                // Draw sector borders
-                ctx.strokeStyle = '#000';
-                ctx.stroke();
-            }
+        // Calculate lightness for radial divisions
+        let adjustedIndex = i;
+        let adjustedTotal = adjustedRadialDivisions - 1;
+        let lightness = 50;
+        if (adjustedTotal > 0) {
+            lightness = 20 + (adjustedIndex / adjustedTotal) * 60; // From 20% to 80%
         }
-    } else {
-        // If not showing colors and no flashing sectors, draw the grid lines
-        // Draw concentric circles (radial divisions)
-        for (let i = 1; i <= radialDivisions; i++) {
-            ctx.beginPath();
-            ctx.arc(
-                centerX,
-                centerY,
-                divisionRadius * i,
-                0,
-                2 * Math.PI
+
+        for (let j = 0; j < circumferentialDivisions; j++) {
+            let startAngle = (2 * Math.PI / circumferentialDivisions) * j;
+            let endAngle = (2 * Math.PI / circumferentialDivisions) * (j + 1);
+
+            // Calculate hue for circumferential divisions
+            let hue = (j / circumferentialDivisions) * 360;
+
+            // Determine if the sector is flashing or highlighted
+            let isFlashing = flashingSectors.some(
+                (sector) =>
+                    sector.radialIndex === i &&
+                    sector.circumferentialIndex === j
             );
-            ctx.stroke();
-        }
 
-        // Draw radial lines (circumferential divisions)
-        for (let i = 0; i < circumferentialDivisions; i++) {
-            const angle = (2 * Math.PI / circumferentialDivisions) * i;
-            const x = centerX + maxRadius * Math.cos(angle);
-            const y = centerY + maxRadius * Math.sin(angle);
+            let isHighlighted = highlightedSectors.some(
+                (sector) =>
+                    sector.radialIndex === i &&
+                    sector.circumferentialIndex === j
+            );
+
+            // Set fill style
+            if (showColors || (isFlashing && !learningMode)) {
+                // If showColors is true, or the sector is flashing and learningMode is off
+                ctx.fillStyle = `hsl(${hue}, 100%, ${lightness}%)`;
+            } else {
+                ctx.fillStyle = '#FFFFFF'; // Default background color
+            }
+
+            // Draw sector
             ctx.beginPath();
             ctx.moveTo(centerX, centerY);
-            ctx.lineTo(x, y);
+            ctx.arc(centerX, centerY, outerRadius, startAngle, endAngle);
+            ctx.lineTo(centerX, centerY);
+            ctx.arc(centerX, centerY, innerRadius, endAngle, startAngle, true);
+            ctx.closePath();
+            ctx.fill();
+
+            // Set stroke style and width
+            if (isHighlighted) {
+                ctx.strokeStyle = '#000';
+                ctx.lineWidth = 4; // Bold outline for highlighted sectors
+            } else {
+                ctx.strokeStyle = '#000';
+                ctx.lineWidth = 1; // Normal outline
+            }
+
+            // Draw sector borders
+            ctx.beginPath();
+            ctx.moveTo(centerX, centerY);
+            ctx.arc(centerX, centerY, outerRadius, startAngle, endAngle);
+            ctx.lineTo(centerX, centerY);
+            ctx.arc(centerX, centerY, innerRadius, endAngle, startAngle, true);
+            ctx.closePath();
             ctx.stroke();
         }
     }
@@ -264,9 +284,6 @@ function startPassiveMode() {
             const radialIndex = Math.floor(Math.random() * adjustedRadialDivisions);
             const circumferentialIndex = Math.floor(Math.random() * circumferentialDivisions);
 
-            // Get the actual radial index accounting for skipped levels
-            const actualRadialIndex = skipRadialLevels + radialIndex;
-
             // Assign octave based on radial index and octave shift
             let octave = N_min + radialIndex + octaveShift;
             // Ensure octave is within N_min and N_max
@@ -300,28 +317,43 @@ function startPassiveMode() {
             // Play the frequency for the duration of the note
             playFrequency(frequency, noteDuration / 1000, volumeMultiplier);
 
+            // Compute center coordinates
+            const centerCoordinates = getGridSpaceCenterCoordinates(radialIndex, circumferentialIndex);
+            const rValue = centerCoordinates.r;
+            const thetaValue = centerCoordinates.theta;
+
+            // Add the note to the active notes list
+            activeNotes.push({
+                frequency: frequency,
+                r: rValue,
+                theta: thetaValue
+            });
+
+            // Update the note display
+            updateNoteDisplay();
+
             // Handle flashing of the sector
             flashingSectors.push({
-                radialIndex: actualRadialIndex,
+                radialIndex: radialIndex,
                 circumferentialIndex: circumferentialIndex,
             });
 
             // Keep track of active passive notes
             activePassiveNotes.push({
-                radialIndex: actualRadialIndex,
+                radialIndex: radialIndex,
                 circumferentialIndex: circumferentialIndex,
             });
 
             // Redraw the grid to show the flashing sector
             drawGrid();
 
-            // Remove the flashing sector after the note duration
+            // Remove the flashing sector and note after the note duration
             setTimeout(() => {
                 // Remove the sector from flashingSectors
                 flashingSectors = flashingSectors.filter(
                     (sector) =>
                         !(
-                            sector.radialIndex === actualRadialIndex &&
+                            sector.radialIndex === radialIndex &&
                             sector.circumferentialIndex === circumferentialIndex
                         )
                 );
@@ -329,10 +361,19 @@ function startPassiveMode() {
                 activePassiveNotes = activePassiveNotes.filter(
                     (note) =>
                         !(
-                            note.radialIndex === actualRadialIndex &&
+                            note.radialIndex === radialIndex &&
                             note.circumferentialIndex === circumferentialIndex
                         )
                 );
+
+                // Remove the note from the active notes list
+                activeNotes = activeNotes.filter(
+                    (note) => note.frequency !== frequency
+                );
+
+                // Update the note display
+                updateNoteDisplay();
+
                 // Redraw the grid to remove the flashing sector
                 drawGrid();
             }, noteDuration);
@@ -343,6 +384,19 @@ function startPassiveMode() {
     }
 
     scheduleNextNote();
+}
+
+// Function to update the note display with active notes
+function updateNoteDisplay() {
+    if (activeNotes.length > 0) {
+        let displayText = 'Playing notes:\n';
+        displayText += activeNotes.map(note =>
+            `Frequency: ${note.frequency.toFixed(2)} Hz, r: ${note.r.toFixed(2)}, θ: ${note.theta.toFixed(2)} rad`
+        ).join('\n');
+        noteDisplay.textContent = displayText;
+    } else {
+        noteDisplay.textContent = '';
+    }
 }
 
 // Function to stop passive mode
@@ -357,6 +411,8 @@ function stopPassiveMode() {
     // Clear all active passive notes
     activePassiveNotes = [];
     flashingSectors = [];
+    activeNotes = [];
+    updateNoteDisplay();
     // Redraw the grid to remove any flashing sectors
     drawGrid();
 }
@@ -481,22 +537,36 @@ canvas.addEventListener('click', async function (event) {
     // Play the frequency
     playFrequency(frequency, 1, volumeMultiplier); // 1-second duration
 
-    // Display the frequency
-    noteDisplay.textContent = `Playing frequency: ${frequency.toFixed(
-        2
-    )} Hz`;
+    // Compute center coordinates
+    const centerCoordinates = getGridSpaceCenterCoordinates(radialIndex, circumferentialIndex);
+    const rValue = centerCoordinates.r;
+    const thetaValue = centerCoordinates.theta;
 
-    // Log the mapping
-    console.log(
-        `Clicked on sector: radialIndex=${radialIndex}, circumferentialIndex=${circumferentialIndex}`
-    );
-    console.log(`Playing frequency: ${frequency.toFixed(2)} Hz`);
+    // Add the note to the active notes list
+    activeNotes.push({
+        frequency: frequency,
+        r: rValue,
+        theta: thetaValue
+    });
+
+    // Update the note display
+    updateNoteDisplay();
+
+    // Remove the note after 1 second
+    setTimeout(() => {
+        // Remove the note from the active notes list
+        activeNotes = activeNotes.filter(
+            (note) => note.frequency !== frequency
+        );
+        // Update the note display
+        updateNoteDisplay();
+    }, 1000);
 
     // Handle flashing of the sector when colors are hidden
     if (!showColors) {
         // Add the sector to the flashing sectors list
         flashingSectors.push({
-            radialIndex: skipRadialLevels + radialIndex,
+            radialIndex: radialIndex,
             circumferentialIndex: circumferentialIndex,
         });
 
@@ -509,8 +579,7 @@ canvas.addEventListener('click', async function (event) {
             flashingSectors = flashingSectors.filter(
                 (sector) =>
                     !(
-                        sector.radialIndex ===
-                            skipRadialLevels + radialIndex &&
+                        sector.radialIndex === radialIndex &&
                         sector.circumferentialIndex === circumferentialIndex
                     )
             );
@@ -518,5 +587,320 @@ canvas.addEventListener('click', async function (event) {
             drawGrid();
         }, 1000);
     }
+
+    // Handle spatial recall if awaiting response in learning mode
+    if (learningMode && awaitingResponse && currentCue && currentCue.recallModality === 'spatial') {
+        // Check if the clicked grid space matches the expected one
+        if (
+            radialIndex === currentCue.radialIndex &&
+            circumferentialIndex === currentCue.circumferentialIndex
+        ) {
+            handleUserResponse(true);
+        } else {
+            handleUserResponse(false);
+        }
+    }
 });
 
+// Function to toggle learning mode
+function toggleLearningMode() {
+    learningMode = !learningMode;
+    if (learningMode) {
+        learningModeButton.textContent = 'Stop';
+        learningModeContainer.style.display = 'block';
+        // Hide other elements if necessary
+    } else {
+        learningModeButton.textContent = 'Learning Mode';
+        learningModeContainer.style.display = 'none';
+        optionsContainer.style.display = 'none';
+        feedbackPopup.style.display = 'none';
+        // Clear any timeouts
+        if (learningTimeout) {
+            clearTimeout(learningTimeout);
+            learningTimeout = null;
+        }
+        awaitingResponse = false;
+        startLearningButton.disabled = false;
+    }
+}
+
+// Handle Learning Mode button click
+learningModeButton.addEventListener('click', toggleLearningMode);
+
+// Function to start learning
+function startLearning() {
+    // Get selected settings
+    cueModalities = [];
+    recallModalities = [];
+    ['piano', 'color', 'spatial', 'coordinate'].forEach(modality => {
+        if (document.getElementById(`cue-${modality}`).checked) {
+            cueModalities.push(modality);
+        }
+        if (modality !== 'piano' && document.getElementById(`recall-${modality}`).checked) {
+            recallModalities.push(modality);
+        }
+    });
+    cueInterval = parseInt(document.getElementById('cue-interval').value) || 5;
+
+    // Validate settings
+    if (cueModalities.length === 0 || recallModalities.length === 0) {
+        alert('Please select at least one cue and one recall modality.');
+        startLearningButton.disabled = false;
+        return;
+    }
+
+    startLearningButton.disabled = true;
+    scheduleNextCue();
+}
+
+// Handle Start Learning button click
+startLearningButton.addEventListener('click', startLearning);
+
+// Function to schedule the next cue
+function scheduleNextCue() {
+    if (!learningMode) return;
+
+    // Start next cue immediately after feedback
+    learningTimeout = setTimeout(() => {
+        presentCue();
+    }, 500); // Short delay to allow feedback popup to disappear
+}
+
+// Function to present a cue
+function presentCue() {
+    if (!learningMode) return;
+
+    // Randomly select cue and recall modalities
+    const cueModality = cueModalities[Math.floor(Math.random() * cueModalities.length)];
+    let recallOptions = recallModalities.filter(modality => modality !== cueModality);
+
+    if (recallOptions.length === 0) {
+        // If recall modalities are the same as cue modality, skip this cue
+        scheduleNextCue();
+        return;
+    }
+
+    const recallModality = recallOptions[Math.floor(Math.random() * recallOptions.length)];
+
+    // Randomly select a grid space
+    const radialIndex = Math.floor(Math.random() * adjustedRadialDivisions);
+    const circumferentialIndex = Math.floor(Math.random() * circumferentialDivisions);
+
+    // Get associated data
+    const frequencyData = getFrequencyData(radialIndex, circumferentialIndex);
+    const centerCoordinates = getGridSpaceCenterCoordinates(radialIndex, circumferentialIndex);
+    const colorData = getColorData(radialIndex, circumferentialIndex);
+
+    currentCue = {
+        cueModality,
+        recallModality,
+        radialIndex,
+        circumferentialIndex,
+        frequency: frequencyData.frequency,
+        coordinates: centerCoordinates,
+        color: colorData.color
+    };
+
+    // Present the cue based on modality
+    switch (cueModality) {
+        case 'piano':
+            playFrequency(currentCue.frequency, 1);
+            break;
+        case 'color':
+            flashColor(currentCue.color);
+            break;
+        case 'spatial':
+            highlightGridSpace(currentCue.radialIndex, currentCue.circumferentialIndex);
+            break;
+        case 'coordinate':
+            showCoordinatePopup(currentCue.coordinates);
+            break;
+    }
+
+    // Prepare recall options
+    prepareRecallOptions(currentCue, recallModality);
+}
+
+// Function to get frequency data
+function getFrequencyData(radialIndex, circumferentialIndex) {
+    // Calculate frequency as per your existing logic
+    let octave = N_min + radialIndex + octaveShift;
+    octave = Math.min(Math.max(octave, N_min), N_max);
+    const baseFrequency = 261.63 * Math.pow(2, octave - 4);
+    const frequency = baseFrequency * Math.pow(2, circumferentialIndex / circumferentialDivisions);
+
+    return { frequency };
+}
+
+// Function to get color data
+function getColorData(radialIndex, circumferentialIndex) {
+    // Calculate color as per your existing logic
+    let adjustedIndex = radialIndex;
+    let adjustedTotal = adjustedRadialDivisions - 1;
+    let lightness = 50;
+    if (adjustedTotal > 0) {
+        lightness = 20 + (adjustedIndex / adjustedTotal) * 60;
+    }
+    let hue = (circumferentialIndex / circumferentialDivisions) * 360;
+    const color = `hsl(${hue}, 100%, ${lightness}%)`;
+
+    return { color };
+}
+
+// Function to flash a color
+function flashColor(color) {
+    document.body.style.backgroundColor = color;
+    setTimeout(() => {
+        document.body.style.backgroundColor = '';
+    }, 500);
+}
+
+// Function to highlight a grid space
+function highlightGridSpace(radialIndex, circumferentialIndex) {
+    if (learningMode) {
+        // In learning mode, highlight the border
+        highlightedSectors.push({
+            radialIndex: radialIndex,
+            circumferentialIndex: circumferentialIndex,
+        });
+        drawGrid();
+        setTimeout(() => {
+            highlightedSectors = [];
+            drawGrid();
+        }, 500);
+    } else {
+        // When not in learning mode, fill the sector
+        flashingSectors.push({
+            radialIndex: radialIndex,
+            circumferentialIndex: circumferentialIndex,
+        });
+        drawGrid();
+        setTimeout(() => {
+            flashingSectors = [];
+            drawGrid();
+        }, 500);
+    }
+}
+
+// Function to show coordinate popup
+function showCoordinatePopup(coordinates) {
+    feedbackPopup.style.display = 'block';
+    feedbackPopup.style.backgroundColor = '#000';
+    feedbackPopup.textContent = `r: ${coordinates.r.toFixed(2)}, θ: ${coordinates.theta.toFixed(2)} rad`;
+    setTimeout(() => {
+        feedbackPopup.style.display = 'none';
+    }, 1000);
+}
+
+// Function to prepare recall options
+function prepareRecallOptions(cue, recallModality) {
+    optionsContainer.innerHTML = '';
+    optionsContainer.style.display = 'block';
+    awaitingResponse = true;
+
+    let options = [];
+    switch (recallModality) {
+        case 'color':
+            options = generateColorOptions(cue.color);
+            break;
+        case 'coordinate':
+            options = generateCoordinateOptions(cue.coordinates);
+            break;
+        case 'spatial':
+            // No options needed; user will click on grid
+            optionsContainer.style.display = 'none';
+            return; // Exit the function early
+    }
+
+    options.forEach(option => {
+        const optionButton = document.createElement('button');
+        optionButton.classList.add('option-button');
+        if (recallModality === 'color') {
+            // Display color swatches
+            optionButton.style.backgroundColor = option.value;
+            optionButton.textContent = '';
+            optionButton.style.width = '50px';
+            optionButton.style.height = '50px';
+            optionButton.style.margin = '5px';
+            optionButton.style.border = '1px solid #000';
+        } else {
+            // For coordinate, display text labels
+            optionButton.textContent = option.label;
+            optionButton.style.margin = '5px';
+            optionButton.style.width = '180px';
+        }
+        optionButton.addEventListener('click', () => handleUserResponse(option.isCorrect));
+        optionsContainer.appendChild(optionButton);
+    });
+}
+
+// Function to generate color options
+function generateColorOptions(correctColor) {
+    let options = [{ value: correctColor, isCorrect: true }];
+    let colorSet = new Set();
+    colorSet.add(correctColor);
+    let attempts = 0;
+    const maxAttempts = 1000;
+
+    while (options.length < 7 && attempts < maxAttempts) {
+        attempts++;
+        const radialIndex = Math.floor(Math.random() * adjustedRadialDivisions);
+        const circumferentialIndex = Math.floor(Math.random() * circumferentialDivisions);
+        const colorData = getColorData(radialIndex, circumferentialIndex);
+        if (!colorSet.has(colorData.color)) {
+            colorSet.add(colorData.color);
+            options.push({ value: colorData.color, isCorrect: false });
+        }
+    }
+
+    if (options.length < 7) {
+        console.warn('Not enough unique colors available. Reducing the number of options.');
+    }
+
+    // Shuffle options
+    options = options.sort(() => Math.random() - 0.5);
+    return options;
+}
+
+// Function to generate coordinate options
+function generateCoordinateOptions(correctCoordinates) {
+    let options = [{ coordinates: correctCoordinates, isCorrect: true }];
+    while (options.length < 7) {
+        const radialIndex = Math.floor(Math.random() * adjustedRadialDivisions);
+        const circumferentialIndex = Math.floor(Math.random() * circumferentialDivisions);
+        const coordinates = getGridSpaceCenterCoordinates(radialIndex, circumferentialIndex);
+        if (!options.some(opt => opt.coordinates.r === coordinates.r && opt.coordinates.theta === coordinates.theta)) {
+            options.push({ coordinates, isCorrect: false });
+        }
+    }
+    // Shuffle options
+    options = options.sort(() => Math.random() - 0.5);
+    // Convert to labels
+    return options.map(opt => ({
+        label: `r: ${opt.coordinates.r.toFixed(2)}, θ: ${opt.coordinates.theta.toFixed(2)} rad`,
+        isCorrect: opt.isCorrect
+    }));
+}
+
+// Function to handle user response
+function handleUserResponse(isCorrect) {
+    if (!awaitingResponse) return;
+    awaitingResponse = false;
+
+    showFeedback(isCorrect);
+
+    // Prepare for next cue
+    optionsContainer.innerHTML = '';
+    optionsContainer.style.display = 'none';
+    scheduleNextCue();
+}
+
+// Function to show feedback
+function showFeedback(isCorrect) {
+    feedbackPopup.style.display = 'block';
+    feedbackPopup.style.backgroundColor = isCorrect ? 'green' : 'red';
+    feedbackPopup.textContent = isCorrect ? 'CORRECT' : 'INCORRECT';
+    setTimeout(() => {
+        feedbackPopup.style.display = 'none';
+    }, 500);
+}
